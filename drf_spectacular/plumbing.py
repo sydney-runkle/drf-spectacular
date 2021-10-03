@@ -429,7 +429,7 @@ def build_root_object(paths, components, version):
     else:
         version = settings.VERSION or version or ''
     root = {
-        'openapi': '3.0.3',
+        'openapi': settings.OAS_VERSION,
         'info': {
             'title': settings.TITLE,
             'version': version,
@@ -467,6 +467,15 @@ def safe_ref(schema):
 
 
 def append_meta(schema, meta):
+    if spectacular_settings.OAS_VERSION.startswith('3.1') and 'nullable' in meta:
+        if 'type' in schema:
+            del meta['nullable']
+            schema['type'] = [schema['type'], 'null']
+        elif '$ref' in schema:
+            del meta['nullable']
+            schema = {'oneOf': [schema, {'type': 'null'}]}
+        else:
+            assert False, 'Invalid nullable case'
     return safe_ref({**schema, **meta})
 
 

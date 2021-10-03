@@ -126,7 +126,7 @@ def postprocess_schema_enums(result, generator, **kwargs):
                 if '' in prop_enum_original_list:
                     components.append(create_enum_component('BlankEnum', schema={'enum': ['']}))
                 if None in prop_enum_original_list:
-                    components.append(create_enum_component('NullEnum', schema={'enum': [None]}))
+                    components.append({'type': 'null'})
 
             if len(components) == 1:
                 prop_schema.update(components[0].ref)

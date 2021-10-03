@@ -51,7 +51,7 @@ urlpatterns = urlpatterns_v1 + urlpatterns_v2 + urlpatterns_str_import
 def test_spectacular_view(no_warnings):
     response = APIClient().get('/api/v1/schema/')
     assert response.status_code == 200
-    assert response.content.startswith(b'openapi: 3.0.3\n')
+    assert response.content.startswith(b'openapi: 3.1.0\n')
     assert response.accepted_media_type == 'application/vnd.oai.openapi'
 
     if DJANGO_VERSION > '3':
@@ -89,9 +89,9 @@ def test_spectacular_view_accept(accept, format, indent):
     assert response.status_code == 200
     assert response.accepted_media_type == accept
     if format == 'json':
-        assert response.content.startswith(b'{\n' + indent * b' ' + b'"openapi": "3.0.3"')
+        assert response.content.startswith(b'{\n' + indent * b' ' + b'"openapi": "3.1.0"')
     if format == 'yaml':
-        assert response.content.startswith(b'openapi: 3.0.3\n')
+        assert response.content.startswith(b'openapi: 3.1.0\n')
 
 
 @pytest.mark.urls(__name__)
