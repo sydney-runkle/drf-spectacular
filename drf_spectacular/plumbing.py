@@ -12,7 +12,7 @@ from abc import ABCMeta
 from collections import OrderedDict, defaultdict
 from decimal import Decimal
 from enum import Enum
-from typing import Any, DefaultDict, Generic, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, DefaultDict, Dict, Generic, List, Optional, Tuple, Type, TypeVar, Union
 
 import inflection
 import uritemplate
@@ -39,12 +39,16 @@ from rest_framework.test import APIRequestFactory
 from rest_framework.utils.mediatypes import _MediaType
 from uritemplate import URITemplate
 
-from drf_spectacular.drainage import Literal, _TypedDictMeta, cache, error, warn
+from drf_spectacular.drainage import Literal, TypeGuard, _TypedDictMeta, cache, error, warn
 from drf_spectacular.settings import spectacular_settings
 from drf_spectacular.types import (
     DJANGO_PATH_CONVERTER_MAPPING, OPENAPI_TYPE_MAPPING, PYTHON_TYPE_MAPPING, OpenApiTypes,
+    _KnownPythonTypes,
 )
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import (
+    OpenApiExample, OpenApiParameter, _FieldType, _ListSerializerType, _ParameterLocationType,
+    _SchemaType, _SerializerType,
+)
 
 try:
     from django.db.models.enums import Choices  # only available in Django>3
@@ -54,14 +58,14 @@ except ImportError:
 
 # types.UnionType was added in Python 3.10 for new PEP 604 pipe union syntax
 if hasattr(types, 'UnionType'):
-    UNION_TYPES: Tuple[Any, ...] = (typing.Union, types.UnionType)  # type: ignore
+    UNION_TYPES: Tuple[Any, ...] = (Union, types.UnionType)  # type: ignore
 else:
-    UNION_TYPES = (typing.Union,)
+    UNION_TYPES = (Union,)
 
 if sys.version_info >= (3, 8):
-    CACHED_PROPERTY_FUNCS = (functools.cached_property, cached_property)  # type: ignore
+    CACHED_PROPERTY_FUNCS = (functools.cached_property, cached_property)
 else:
-    CACHED_PROPERTY_FUNCS = (cached_property,)  # type: ignore
+    CACHED_PROPERTY_FUNCS = (cached_property,)
 
 T = TypeVar('T')
 
@@ -83,7 +87,7 @@ def force_instance(serializer_or_field):
         return serializer_or_field
 
 
-def is_serializer(obj) -> bool:
+def is_serializer(obj) -> TypeGuard[_SerializerType]:
     from drf_spectacular.serializers import OpenApiSerializerExtension
     return (
         isinstance(force_instance(obj), serializers.BaseSerializer)
@@ -91,7 +95,7 @@ def is_serializer(obj) -> bool:
     )
 
 
-def is_list_serializer(obj) -> bool:
+def is_list_serializer(obj) -> TypeGuard[_ListSerializerType]:
     return isinstance(force_instance(obj), serializers.ListSerializer)
 
 
@@ -107,17 +111,17 @@ def is_list_serializer_customized(obj) -> bool:
     )
 
 
-def is_basic_serializer(obj) -> bool:
+def is_basic_serializer(obj) -> TypeGuard[_SerializerType]:
     return is_serializer(obj) and not is_list_serializer(obj)
 
 
-def is_field(obj):
+def is_field(obj) -> TypeGuard[_FieldType]:
     # make sure obj is a serializer field and nothing else.
     # guard against serializers because BaseSerializer(Field)
     return isinstance(force_instance(obj), fields.Field) and not is_serializer(obj)
 
 
-def is_basic_type(obj, allow_none=True):
+def is_basic_type(obj, allow_none=True) -> TypeGuard[_KnownPythonTypes]:
     if not isinstance(obj, collections.abc.Hashable):
         return False
     if not allow_none and (obj is None or obj is OpenApiTypes.NONE):
@@ -125,7 +129,7 @@ def is_basic_type(obj, allow_none=True):
     return obj in get_openapi_type_mapping() or obj in PYTHON_TYPE_MAPPING
 
 
-def is_patched_serializer(serializer, direction):
+def is_patched_serializer(serializer, direction) -> bool:
     return bool(
         spectacular_settings.COMPONENT_SPLIT_PATCH
         and serializer.partial
@@ -134,13 +138,13 @@ def is_patched_serializer(serializer, direction):
     )
 
 
-def is_trivial_string_variation(a: str, b: str):
+def is_trivial_string_variation(a: str, b: str) -> bool:
     a = (a or '').strip().lower().replace(' ', '_').replace('-', '_')
     b = (b or '').strip().lower().replace(' ', '_').replace('-', '_')
     return a == b
 
 
-def assert_basic_serializer(serializer):
+def assert_basic_serializer(serializer) -> None:
     assert is_basic_serializer(serializer), (
         f'internal assumption violated because we expected a basic serializer here and '
         f'instead got a "{serializer}". This may be the result of another app doing '
@@ -188,9 +192,9 @@ def get_view_model(view, emit_warnings=True):
             )
 
 
-def get_doc(obj):
+def get_doc(obj) -> str:
     """ get doc string with fallback on obj's base classes (ignoring DRF documentation). """
-    def post_cleanup(doc: str):
+    def post_cleanup(doc: str) -> str:
         # also clean up trailing whitespace for each line
         return '\n'.join(line.rstrip() for line in doc.rstrip().split('\n'))
 
@@ -212,7 +216,7 @@ def get_doc(obj):
     return ''
 
 
-def get_type_hints(obj):
+def get_type_hints(obj) -> Dict[str, Any]:
     """ unpack wrapped partial object and use actual func object """
     if isinstance(obj, functools.partial):
         obj = obj.func
@@ -227,7 +231,7 @@ def get_openapi_type_mapping():
     }
 
 
-def build_generic_type():
+def build_generic_type() -> _SchemaType:
     if spectacular_settings.GENERIC_ADDITIONAL_PROPERTIES is None:
         return {'type': 'object'}
     elif spectacular_settings.GENERIC_ADDITIONAL_PROPERTIES == 'bool':
@@ -236,7 +240,7 @@ def build_generic_type():
         return {'type': 'object', 'additionalProperties': {}}
 
 
-def build_basic_type(obj):
+def build_basic_type(obj: Union[_KnownPythonTypes, OpenApiTypes]) -> Optional[_SchemaType]:
     """
     resolve either enum or actual type and yield schema template for modification
     """
@@ -252,7 +256,7 @@ def build_basic_type(obj):
         return dict(openapi_type_mapping[OpenApiTypes.STR])
 
 
-def build_array_type(schema, min_length=None, max_length=None):
+def build_array_type(schema: _SchemaType, min_length=None, max_length=None) -> _SchemaType:
     schema = {'type': 'array', 'items': schema}
     if min_length is not None:
         schema['minLength'] = min_length
@@ -262,12 +266,12 @@ def build_array_type(schema, min_length=None, max_length=None):
 
 
 def build_object_type(
-        properties=None,
+        properties: Optional[_SchemaType] = None,
         required=None,
-        description=None,
+        description: Optional[str] = None,
         **kwargs
-):
-    schema = {'type': 'object'}
+) -> _SchemaType:
+    schema: _SchemaType = {'type': 'object'}
     if description:
         schema['description'] = description.strip()
     if properties:
@@ -280,14 +284,14 @@ def build_object_type(
     return schema
 
 
-def build_media_type_object(schema, examples=None):
+def build_media_type_object(schema: _SchemaType, examples=None) -> _SchemaType:
     media_type_object = {'schema': schema}
     if examples:
         media_type_object['examples'] = examples
     return media_type_object
 
 
-def build_examples_list(examples):
+def build_examples_list(examples: List[OpenApiExample]) -> _SchemaType:
     schema = {}
     for example in examples:
         normalized_name = inflection.camelize(example.name.replace(' ', '_'))
@@ -307,9 +311,9 @@ def build_examples_list(examples):
 
 
 def build_parameter_type(
-        name,
-        schema,
-        location,
+        name: str,
+        schema: _SchemaType,
+        location: _ParameterLocationType,
         required=False,
         description=None,
         enum=None,
@@ -321,7 +325,7 @@ def build_parameter_type(
         allow_blank=True,
         examples=None,
         extensions=None,
-):
+) -> _SchemaType:
     irrelevant_field_meta = ['readOnly', 'writeOnly']
     if location == OpenApiParameter.PATH:
         irrelevant_field_meta += ['nullable', 'default']
@@ -355,11 +359,11 @@ def build_parameter_type(
     return schema
 
 
-def build_choice_field(field):
+def build_choice_field(field) -> _SchemaType:
     choices = list(OrderedDict.fromkeys(field.choices))  # preserve order and remove duplicates
 
     if all(isinstance(choice, bool) for choice in choices):
-        type = 'boolean'
+        type: Optional[str] = 'boolean'
     elif all(isinstance(choice, int) for choice in choices):
         type = 'integer'
     elif all(isinstance(choice, (int, float, Decimal)) for choice in choices):  # `number` includes `integer`
@@ -375,7 +379,7 @@ def build_choice_field(field):
     if field.allow_null:
         choices.append(None)
 
-    schema = {
+    schema: _SchemaType = {
         # The value of `enum` keyword MUST be an array and SHOULD be unique.
         # Ref: https://tools.ietf.org/html/draft-wright-json-schema-validation-00#section-5.20
         'enum': choices
@@ -390,7 +394,7 @@ def build_choice_field(field):
     return schema
 
 
-def build_bearer_security_scheme_object(header_name, token_prefix, bearer_format=None):
+def build_bearer_security_scheme_object(header_name, token_prefix, bearer_format=None) -> _SchemaType:
     """ Either build a bearer scheme or a fallback due to OpenAPI 3.0.3 limitations """
     # normalize Django header quirks
     if header_name.startswith('HTTP_'):
@@ -414,7 +418,7 @@ def build_bearer_security_scheme_object(header_name, token_prefix, bearer_format
         }
 
 
-def build_root_object(paths, components, version):
+def build_root_object(paths, components, version) -> _SchemaType:
     settings = spectacular_settings
     if settings.VERSION and version:
         version = f'{settings.VERSION} ({version})'
@@ -448,7 +452,7 @@ def build_root_object(paths, components, version):
     return root
 
 
-def safe_ref(schema):
+def safe_ref(schema: _SchemaType) -> _SchemaType:
     """
     ensure that $ref has its own context and does not remove potential sibling
     entries when $ref is substituted.
@@ -458,7 +462,7 @@ def safe_ref(schema):
     return schema
 
 
-def append_meta(schema, meta):
+def append_meta(schema: _SchemaType, meta: _SchemaType) -> _SchemaType:
     return safe_ref({**schema, **meta})
 
 
@@ -606,18 +610,18 @@ class ResolvedComponent:
         return bool(self.name and self.type and self.object)
 
     @property
-    def key(self):
+    def key(self) -> Tuple[str, str]:
         return self.name, self.type
 
     @property
-    def ref(self) -> dict:
+    def ref(self) -> _SchemaType:
         assert self.__bool__()
         return {'$ref': f'#/components/{self.type}/{self.name}'}
 
 
 class ComponentRegistry:
     def __init__(self):
-        self._components = {}
+        self._components: Dict[Tuple[str, str], ResolvedComponent] = {}
 
     def register(self, component: ResolvedComponent):
         if component in self:
@@ -649,7 +653,7 @@ class ComponentRegistry:
             )
         return True
 
-    def __getitem__(self, key):
+    def __getitem__(self, key) -> ResolvedComponent:
         if isinstance(key, ResolvedComponent):
             key = key.key
         return self._components[key]
@@ -676,7 +680,7 @@ class ComponentRegistry:
 
 
 class OpenApiGeneratorExtension(Generic[T], metaclass=ABCMeta):
-    _registry: List[T] = []
+    _registry: List[Type[T]] = []
     target_class: Union[None, str, Type[object]] = None
     match_subclasses = False
     priority = 0
@@ -702,7 +706,7 @@ class OpenApiGeneratorExtension(Generic[T], metaclass=ABCMeta):
             cls.target_class = None
 
     @classmethod
-    def _matches(cls, target) -> bool:
+    def _matches(cls, target: Any) -> bool:
         if isinstance(cls.target_class, str):
             cls._load_class()
 
@@ -721,7 +725,7 @@ class OpenApiGeneratorExtension(Generic[T], metaclass=ABCMeta):
         return None
 
 
-def deep_import_string(string):
+def deep_import_string(string: str) -> Any:
     """ augmented import from string, e.g. MODULE.CLASS/OBJECT.ATTRIBUTE """
     try:
         return import_string(string)
@@ -769,7 +773,7 @@ def load_enum_name_overrides():
     return overrides
 
 
-def list_hash(lst):
+def list_hash(lst: List[Any]) -> str:
     return hashlib.sha256(json.dumps(list(lst), sort_keys=True).encode()).hexdigest()
 
 
@@ -870,7 +874,7 @@ def resolve_regex_path_parameter(path_regex, variable):
     return None
 
 
-def is_versioning_supported(versioning_class):
+def is_versioning_supported(versioning_class) -> bool:
     return issubclass(versioning_class, (
         versioning.URLPathVersioning,
         versioning.NamespaceVersioning,
@@ -878,7 +882,7 @@ def is_versioning_supported(versioning_class):
     ))
 
 
-def operation_matches_version(view, requested_version):
+def operation_matches_version(view, requested_version) -> bool:
     try:
         version, _ = view.determine_version(view.request, **view.kwargs)
     except exceptions.NotAcceptable:
@@ -944,7 +948,7 @@ def modify_media_types_for_versioning(view, media_types: List[str]) -> List[str]
     ]
 
 
-def analyze_named_regex_pattern(path):
+def analyze_named_regex_pattern(path: str) -> Dict[str, str]:
     """ safely extract named groups and their pattern from given regex pattern """
     result = {}
     stack = 0
@@ -1225,7 +1229,7 @@ def resolve_type_hint(hint):
         raise UnableToProceedError()
 
 
-def whitelisted(obj: object, classes: List[Type[object]], exact=False):
+def whitelisted(obj: object, classes: List[Type[object]], exact=False) -> bool:
     if not classes:
         return True
     if exact:

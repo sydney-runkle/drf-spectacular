@@ -25,7 +25,7 @@ class OpenApiAuthenticationExtension(OpenApiGeneratorExtension['OpenApiAuthentic
     ``get_security_definition()`` is expected to return a valid `OpenAPI security scheme object
     <https://spec.openapis.org/oas/v3.0.3#securitySchemeObject>`_
     """
-    _registry: List['OpenApiAuthenticationExtension'] = []
+    _registry: List[Type['OpenApiAuthenticationExtension']] = []
 
     name: Union[str, List[str]]
 
@@ -53,7 +53,7 @@ class OpenApiSerializerExtension(OpenApiGeneratorExtension['OpenApiSerializerExt
     ``map_serializer()`` is expected to return a valid `OpenAPI schema object
     <https://spec.openapis.org/oas/v3.0.3#schemaObject>`_.
     """
-    _registry: List['OpenApiSerializerExtension'] = []
+    _registry: List[Type['OpenApiSerializerExtension']] = []
 
     def get_name(self) -> Optional[str]:
         """ return str for overriding default name extraction """
@@ -76,7 +76,7 @@ class OpenApiSerializerFieldExtension(OpenApiGeneratorExtension['OpenApiSerializ
     ``map_serializer_field()`` is expected to return a valid `OpenAPI schema object
     <https://spec.openapis.org/oas/v3.0.3#schemaObject>`_.
     """
-    _registry: List['OpenApiSerializerFieldExtension'] = []
+    _registry: List[Type['OpenApiSerializerFieldExtension']] = []
 
     def get_name(self) -> Optional[str]:
         """ return str for breaking out field schema into separate named component """
@@ -96,7 +96,7 @@ class OpenApiViewExtension(OpenApiGeneratorExtension['OpenApiViewExtension']):
     ``ViewSet`` et al.). The discovered original view instance can be accessed with
     ``self.target`` and be subclassed if desired.
     """
-    _registry: List['OpenApiViewExtension'] = []
+    _registry: List[Type['OpenApiViewExtension']] = []
 
     @classmethod
     def _load_class(cls):
@@ -123,7 +123,7 @@ class OpenApiFilterExtension(OpenApiGeneratorExtension['OpenApiFilterExtension']
     Using ``drf_spectacular.plumbing.build_parameter_type`` is recommended to generate
     the appropriate raw dict objects.
     """
-    _registry: List['OpenApiFilterExtension'] = []
+    _registry: List[Type['OpenApiFilterExtension']] = []
 
     @abstractmethod
     def get_schema_operation_parameters(self, auto_schema: 'AutoSchema', *args, **kwargs) -> List[dict]:

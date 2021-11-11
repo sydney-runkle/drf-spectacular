@@ -3,7 +3,7 @@ import re
 
 from django.urls import URLPattern, URLResolver
 from rest_framework import views, viewsets
-from rest_framework.schemas.generators import BaseSchemaGenerator  # type: ignore
+from rest_framework.schemas.generators import BaseSchemaGenerator
 from rest_framework.schemas.generators import EndpointEnumerator as BaseEndpointEnumerator
 from rest_framework.settings import api_settings
 

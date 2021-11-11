@@ -1,7 +1,7 @@
 import copy
 import re
-import typing
 from collections import defaultdict
+from typing import List, Optional, Union
 
 import uritemplate
 from django.core import exceptions as django_exceptions
@@ -13,7 +13,7 @@ from rest_framework.fields import _UnvalidatedField, empty
 from rest_framework.generics import CreateAPIView, GenericAPIView, ListCreateAPIView
 from rest_framework.mixins import ListModelMixin
 from rest_framework.schemas.inspectors import ViewInspector
-from rest_framework.schemas.utils import get_pk_description  # type: ignore
+from rest_framework.schemas.utils import get_pk_description
 from rest_framework.settings import api_settings
 from rest_framework.utils.model_meta import get_field_info
 from rest_framework.views import APIView
@@ -38,7 +38,9 @@ from drf_spectacular.plumbing import (
 )
 from drf_spectacular.settings import spectacular_settings
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiCallback, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import (
+    Direction, OpenApiCallback, OpenApiParameter, OpenApiResponse, _SchemaType, _SerializerType,
+)
 
 
 class AutoSchema(ViewInspector):
@@ -50,14 +52,21 @@ class AutoSchema(ViewInspector):
         'delete': 'destroy',
     }
 
-    def get_operation(self, path, path_regex, path_prefix, method, registry: ComponentRegistry):
+    def get_operation(
+            self,
+            path: str,
+            path_regex: str,
+            path_prefix: str,
+            method: str,
+            registry: ComponentRegistry
+    ) -> _SchemaType:
         self.registry = registry
         self.path = path
         self.path_regex = path_regex
         self.path_prefix = path_prefix
         self.method = method.upper()
 
-        operation = {'operationId': self.get_operation_id()}
+        operation: _SchemaType = {'operationId': self.get_operation_id()}
 
         description = self.get_description()
         if description:
@@ -103,7 +112,7 @@ class AutoSchema(ViewInspector):
 
         return operation
 
-    def _is_list_view(self, serializer=None):
+    def _is_list_view(self, serializer=None) -> bool:
         """
         partially heuristic approach to determine if a view yields an object or a
         list of objects. used for operationId naming, array building and pagination.
@@ -136,7 +145,7 @@ class AutoSchema(ViewInspector):
 
         return False
 
-    def _is_create_operation(self):
+    def _is_create_operation(self) -> bool:
         if self.method != 'POST':
             return False
         if getattr(self.view, 'action', None) == 'create':
@@ -145,7 +154,7 @@ class AutoSchema(ViewInspector):
             return True
         return False
 
-    def get_override_parameters(self):
+    def get_override_parameters(self) -> List[Union[OpenApiParameter, _SerializerType]]:
         """ override this for custom behaviour """
         return []
 
@@ -212,13 +221,13 @@ class AutoSchema(ViewInspector):
                 warn(f'could not resolve parameter annotation {parameter}. Skipping.')
         return result
 
-    def _get_format_parameters(self):
+    def _get_format_parameters(self) -> List[dict]:
         parameters = []
         formats = self.map_renderers('format')
         if api_settings.URL_FORMAT_OVERRIDE and len(formats) > 1:
             parameters.append(build_parameter_type(
                 name=api_settings.URL_FORMAT_OVERRIDE,
-                schema=build_basic_type(OpenApiTypes.STR),
+                schema=build_basic_type(OpenApiTypes.STR),  # type: ignore
                 location=OpenApiParameter.QUERY,
                 enum=formats
             ))
@@ -266,14 +275,14 @@ class AutoSchema(ViewInspector):
         else:
             return list(parameters.values())
 
-    def get_description(self):
+    def get_description(self) -> str:  # type: ignore
         """ override this for custom behaviour """
         action_or_method = getattr(self.view, getattr(self.view, 'action', self.method.lower()), None)
         view_doc = get_doc(self.view.__class__)
         action_doc = get_doc(action_or_method)
         return action_doc or view_doc
 
-    def get_summary(self):
+    def get_summary(self) -> Optional[str]:
         """ override this for custom behaviour """
         return None
 
@@ -339,21 +348,21 @@ class AutoSchema(ViewInspector):
             auths.append({})
         return auths
 
-    def get_request_serializer(self) -> typing.Any:
+    def get_request_serializer(self) -> Optional[_SerializerType]:
         """ override this for custom behaviour """
         return self._get_serializer()
 
-    def get_response_serializers(self) -> typing.Any:
+    def get_response_serializers(self) -> Optional[_SerializerType]:
         """ override this for custom behaviour """
         return self._get_serializer()
 
-    def get_tags(self) -> typing.List[str]:
+    def get_tags(self) -> List[str]:
         """ override this for custom behaviour """
         tokenized_path = self._tokenize_path()
         # use first non-parameter path part as tag
         return tokenized_path[:1]
 
-    def get_extensions(self) -> typing.Dict[str, typing.Any]:
+    def get_extensions(self) -> _SchemaType:
         return {}
 
     def _get_callbacks(self):
@@ -414,11 +423,11 @@ class AutoSchema(ViewInspector):
 
         return result
 
-    def get_callbacks(self) -> typing.List[OpenApiCallback]:
+    def get_callbacks(self) -> List[OpenApiCallback]:
         """ override this for custom behaviour """
         return []
 
-    def get_operation_id(self):
+    def get_operation_id(self) -> str:
         """ override this for custom behaviour """
         tokenized_path = self._tokenize_path()
         # replace dashes as they can be problematic later in code generation
@@ -437,11 +446,11 @@ class AutoSchema(ViewInspector):
 
         return '_'.join(tokenized_path + [action])
 
-    def is_deprecated(self):
+    def is_deprecated(self) -> bool:
         """ override this for custom behaviour """
         return False
 
-    def _tokenize_path(self):
+    def _tokenize_path(self) -> List[str]:
         # remove path prefix
         path = re.sub(
             pattern=self.path_prefix,
@@ -452,8 +461,8 @@ class AutoSchema(ViewInspector):
         # remove path variables
         path = re.sub(pattern=r'\{[\w\-]+\}', repl='', string=path)
         # cleanup and tokenize remaining parts.
-        path = path.rstrip('/').lstrip('/').split('/')
-        return [t for t in path if t]
+        tokenized_path = path.rstrip('/').lstrip('/').split('/')
+        return [t for t in tokenized_path if t]
 
     def _resolve_path_parameters(self, variables):
         model = get_view_model(self.view, emit_warnings=False)
@@ -1238,7 +1247,7 @@ class AutoSchema(ViewInspector):
             request_body_required = False
         return schema, request_body_required
 
-    def _get_response_bodies(self, direction='response'):
+    def _get_response_bodies(self, direction: Direction = 'response') -> _SchemaType:
         response_serializers = self.get_response_serializers()
 
         if (
@@ -1272,10 +1281,10 @@ class AutoSchema(ViewInspector):
                 f'Defaulting to generic free-form object.'
             )
             schema = build_basic_type(OpenApiTypes.OBJECT)
-            schema['description'] = _('Unspecified response body')
+            schema['description'] = _('Unspecified response body')  # type: ignore
             return {'200': self._get_response_for_code(schema, '200', direction=direction)}
 
-    def _unwrap_list_serializer(self, serializer, direction) -> typing.Optional[dict]:
+    def _unwrap_list_serializer(self, serializer, direction: Direction) -> Optional[_SchemaType]:
         if is_field(serializer):
             return self._map_serializer_field(serializer, direction)
         elif is_basic_serializer(serializer):
@@ -1395,7 +1404,11 @@ class AutoSchema(ViewInspector):
             elif is_serializer(parameter.type):
                 schema = self.resolve_serializer(parameter.type, direction).ref
             else:
-                schema = parameter.type
+                schema = parameter.type  # type: ignore
+
+            if not schema:
+                warn(f'response parameter {parameter.name} requires non-empty schema')
+                continue
 
             if parameter.location not in [OpenApiParameter.HEADER, OpenApiParameter.COOKIE]:
                 warn(f'incompatible location type ignored for response parameter {parameter.name}')
@@ -1422,7 +1435,7 @@ class AutoSchema(ViewInspector):
 
         return result
 
-    def _get_serializer_name(self, serializer, direction):
+    def _get_serializer_name(self, serializer, direction: Direction) -> str:
         serializer_extension = OpenApiSerializerExtension.get_match(serializer)
         if serializer_extension and serializer_extension.get_name():
             # library override mechanisms
@@ -1438,6 +1451,8 @@ class AutoSchema(ViewInspector):
             return self._get_serializer_name(serializer.child, direction)
         else:
             name = serializer.__class__.__name__
+
+        assert name
 
         if name.endswith('Serializer'):
             name = name[:-10]
@@ -1457,7 +1472,7 @@ class AutoSchema(ViewInspector):
 
         return name
 
-    def resolve_serializer(self, serializer, direction) -> ResolvedComponent:
+    def resolve_serializer(self, serializer: _SerializerType, direction: Direction) -> ResolvedComponent:
         assert_basic_serializer(serializer)
         serializer = force_instance(serializer)
 

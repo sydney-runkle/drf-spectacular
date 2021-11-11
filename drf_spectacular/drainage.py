@@ -2,16 +2,21 @@ import contextlib
 import functools
 import sys
 from collections import defaultdict
-from typing import DefaultDict
+from typing import Any, Callable, DefaultDict, List, TypeVar
 
 if sys.version_info >= (3, 8):
     from typing import (  # type: ignore[attr-defined] # noqa: F401
         Final, Literal, TypedDict, _TypedDictMeta,
     )
 else:
-    from typing_extensions import (  # type: ignore[attr-defined] # noqa: F401
-        Final, Literal, TypedDict, _TypedDictMeta,
-    )
+    from typing_extensions import Final, Literal, TypedDict, _TypedDictMeta  # noqa: F401
+
+if sys.version_info >= (3, 10):
+    from typing import TypeGuard  # noqa: F401
+else:
+    from typing_extensions import TypeGuard  # noqa: F401
+
+F = TypeVar('F', bound=Callable[..., Any])
 
 
 class GeneratorStats:
@@ -38,11 +43,11 @@ class GeneratorStats:
         finally:
             self.silent = tmp
 
-    def reset(self):
+    def reset(self) -> None:
         self._warn_cache.clear()
         self._error_cache.clear()
 
-    def emit(self, msg, severity):
+    def emit(self, msg: str, severity: str) -> None:
         assert severity in ['warning', 'error']
         msg = _get_current_trace() + str(msg)
         cache = self._warn_cache if severity == 'warning' else self._error_cache
@@ -50,7 +55,7 @@ class GeneratorStats:
             print(f'{severity.capitalize()} #{len(cache)}: {msg}', file=sys.stderr)
         cache[msg] += 1
 
-    def emit_summary(self):
+    def emit_summary(self) -> None:
         if not self.silent and (self._warn_cache or self._error_cache):
             print(
                 f'\nSchema generation summary:\n'
@@ -63,7 +68,7 @@ class GeneratorStats:
 GENERATOR_STATS = GeneratorStats()
 
 
-def warn(msg, delayed=None):
+def warn(msg: str, delayed: Any = None):
     if delayed:
         warnings = get_override(delayed, 'warnings', [])
         warnings.append(msg)
@@ -72,7 +77,7 @@ def warn(msg, delayed=None):
         GENERATOR_STATS.emit(msg, 'warning')
 
 
-def error(msg, delayed=None):
+def error(msg: str, delayed: Any = None):
     if delayed:
         errors = get_override(delayed, 'errors', [])
         errors.append(msg)
@@ -81,7 +86,7 @@ def error(msg, delayed=None):
         GENERATOR_STATS.emit(msg, 'error')
 
 
-def reset_generator_stats():
+def reset_generator_stats() -> None:
     GENERATOR_STATS.reset()
 
 
@@ -89,7 +94,7 @@ _TRACES = []
 
 
 @contextlib.contextmanager
-def add_trace_message(trace_message):
+def add_trace_message(trace_message: str):
     """
     Adds a message to be used as a prefix when emitting warnings and errors.
     """
@@ -98,11 +103,11 @@ def add_trace_message(trace_message):
     _TRACES.pop()
 
 
-def _get_current_trace():
+def _get_current_trace() -> str:
     return ''.join(f"{trace}: " for trace in _TRACES if trace)
 
 
-def has_override(obj, prop):
+def has_override(obj: Any, prop: str) -> bool:
     if isinstance(obj, functools.partial):
         obj = obj.func
     if not hasattr(obj, '_spectacular_annotation'):
@@ -112,7 +117,7 @@ def has_override(obj, prop):
     return True
 
 
-def get_override(obj, prop, default=None):
+def get_override(obj: Any, prop: str, default: Any = None) -> Any:
     if isinstance(obj, functools.partial):
         obj = obj.func
     if not has_override(obj, prop):
@@ -120,7 +125,7 @@ def get_override(obj, prop, default=None):
     return obj._spectacular_annotation[prop]
 
 
-def set_override(obj, prop, value):
+def set_override(obj: Any, prop: str, value: Any) -> Any:
     if not hasattr(obj, '_spectacular_annotation'):
         obj._spectacular_annotation = {}
     elif '_spectacular_annotation' not in obj.__dict__:
@@ -129,7 +134,7 @@ def set_override(obj, prop, value):
     return obj
 
 
-def get_view_method_names(view, schema=None):
+def get_view_method_names(view, schema=None) -> List[str]:
     schema = schema or view.schema
     return [
         item for item in dir(view) if callable(getattr(view, item)) and (
@@ -167,6 +172,6 @@ def isolate_view_method(view, method_name):
     return wrapped_method
 
 
-def cache(user_function):
+def cache(user_function: F) -> F:
     """ simple polyfill for python < 3.9 """
-    return functools.lru_cache(maxsize=None)(user_function)
+    return functools.lru_cache(maxsize=None)(user_function)  # type: ignore
